@@ -166,6 +166,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
     function _freeFunds(
         uint256 _amount
     ) internal override {
+        // Withdraw without triggering a collateral redemption
         LENDER.redeem(LENDER.convertToShares(_amount), address(this), address(this));
     }
 
