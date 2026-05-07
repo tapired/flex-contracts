@@ -97,7 +97,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
         uint256 _amount
     ) external onlyManagement returns (uint256) {
         // Cap the amount to our max redeem
-        uint256 _shares = Math.min(LENDER.convertToShares(_amount), LENDER.maxRedeem(address(this)));
+        uint256 _shares = Math.min(LENDER.previewWithdraw(_amount), LENDER.maxRedeem(address(this)));
 
         // Withdraw and potentially trigger a collateral redemption
         if (_shares > 0) _amount = LENDER.redeem(_shares, address(this), address(this));
