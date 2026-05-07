@@ -96,7 +96,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
     function forceFreeFunds(
         uint256 _amount
     ) external onlyManagement returns (uint256) {
-        // Cap the amount we can actually redeem
+        // Cap the amount to our max redeem
         uint256 _shares = Math.min(LENDER.convertToShares(_amount), LENDER.maxRedeem(address(this)));
 
         // Withdraw and potentially trigger a collateral redemption
@@ -166,11 +166,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
     function _freeFunds(
         uint256 _amount
     ) internal override {
-        // Cap the amount to free by the Lender's idle balance to avoid a collateral redemption
-        uint256 _shares = LENDER.convertToShares(Math.min(_amount, asset.balanceOf(address(LENDER))));
-
-        // Withdraw without triggering a collateral redemption
-        if (_shares > 0) LENDER.redeem(_shares, address(this), address(this));
+        LENDER.redeem(LENDER.convertToShares(_amount), address(this), address(this));
     }
 
     /// @inheritdoc BaseStrategy
