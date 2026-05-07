@@ -384,11 +384,11 @@ contract AllocatorTests is DeployAllocator, Test {
     }
 
     function test_setOpen_gating(
-        uint256 _amount,
-        address _depositor
+        uint256 _amount
     ) public {
         _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
-        vm.assume(_depositor != user && _depositor != address(0));
+
+        address _depositor = address(77);
 
         airdrop(asset, _depositor, _amount);
 
@@ -408,14 +408,12 @@ contract AllocatorTests is DeployAllocator, Test {
     }
 
     function test_setAllowed_gating(
-        uint256 _amount,
-        address _depositor,
-        address _stranger
+        uint256 _amount
     ) public {
         _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
-        vm.assume(_depositor != user && _stranger != user);
-        vm.assume(_depositor != _stranger);
-        vm.assume(_depositor != address(0) && _stranger != address(0));
+
+        address _depositor = address(77);
+        address _stranger = address(78);
 
         airdrop(asset, _depositor, _amount);
         airdrop(asset, _stranger, _amount);

@@ -180,6 +180,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
     function _emergencyWithdraw(
         uint256 /*_amount*/
     ) internal override {
+        // Withdraw everything we can, trigger a redemption if needed
         LENDER.redeem(LENDER.maxRedeem(address(this)), address(this), address(this));
     }
 
