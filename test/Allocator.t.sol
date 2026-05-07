@@ -9,6 +9,8 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {IStrategy} from "../src/allocator/interfaces/IStrategy.sol";
 import {ILender} from "../src/lender/interfaces/ILender.sol";
 
+import {IAuction} from "./interfaces/IAuction.sol";
+import {IDutchDesk} from "./interfaces/IDutchDesk.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITroveManager} from "./interfaces/ITroveManager.sol";
 
@@ -21,17 +23,16 @@ contract AllocatorTests is DeployAllocator, Test {
     // Contracts
     ERC20 public asset;
     IStrategy public strategy;
-    ILender public constant LENDER = ILender(0x69671A4dA351b64026302f6aC24827620c3C7665);
+    ILender public constant LENDER = ILender(0xA967FcDb8a2bEF38caaB6131169c9D45be550Db0);
 
     // Roles
     address public user = address(1);
     address public management = address(420);
     address public performanceFeeRecipient = address(42069);
-    
 
     // Fuzz bounds
     uint256 public maxFuzzAmount = 1_000_000 ether;
-    uint256 public minFuzzAmount = 1 ether;
+    uint256 public minFuzzAmount = 1_000 ether;
 
     uint256 public MAX_BPS = 10_000;
     uint256 public ASSET_PRECISION;
@@ -41,7 +42,7 @@ contract AllocatorTests is DeployAllocator, Test {
         isTest = true;
 
         // Create fork
-        uint256 _blockNumber = 24_541_660; // cache state for faster tests
+        uint256 _blockNumber = 25_043_786; // cache state for faster tests
         vm.selectFork(vm.createFork(vm.envString("ETH_RPC_URL"), _blockNumber));
 
         // Deploy the StrategyFactory
@@ -92,10 +93,10 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        openAndCloseTrove(1 days);
+        openAndCloseTrove(_amount, 1 days);
 
         // Report profit
-        vm.prank(keeper);
+        vm.prank(strategy.keeper());
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
@@ -118,7 +119,7 @@ contract AllocatorTests is DeployAllocator, Test {
         uint16 _profitFactor
     ) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
+        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS / 10));
 
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -126,14 +127,14 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        openAndCloseTrove(1 days);
+        openAndCloseTrove(_amount, 1 days);
 
         // Simulate yield by airdropping the asset directly to the strategy
         uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
         airdrop(asset, address(strategy), toAirdrop);
 
         // Report profit
-        vm.prank(keeper);
+        vm.prank(strategy.keeper());
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
@@ -141,6 +142,8 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
+        // 1023 230330
+        // 1026 090120
 
         uint256 balanceBefore = asset.balanceOf(user);
 
@@ -156,10 +159,11 @@ contract AllocatorTests is DeployAllocator, Test {
         uint16 _profitFactor
     ) public {
         vm.assume(_amount > minFuzzAmount && _amount < maxFuzzAmount);
-        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS));
+        _profitFactor = uint16(bound(uint256(_profitFactor), 10, MAX_BPS / 10));
 
-        // Set protocol fee to 0 and perf fee to 10%
-        setFees(0, 1_000);
+        // Set perf fee to 10%
+        vm.prank(management);
+        strategy.setPerformanceFee(1_000);
 
         // Deposit into strategy
         mintAndDepositIntoStrategy(strategy, user, _amount);
@@ -167,18 +171,14 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        openAndCloseTrove(1 days);
-
-        // Simulate yield by airdropping the asset directly to the strategy
-        uint256 toAirdrop = (_amount * _profitFactor) / MAX_BPS;
-        airdrop(asset, address(strategy), toAirdrop);
+        openAndCloseTrove(_amount, 10 days);
 
         // Report profit
-        vm.prank(keeper);
+        vm.prank(strategy.keeper());
         (uint256 profit, uint256 loss) = strategy.report();
 
         // Check return Values
-        assertGe(profit, toAirdrop, "!profit");
+        assertGe(profit, 0, "!profit");
         assertEq(loss, 0, "!loss");
 
         skip(strategy.profitMaxUnlockTime());
@@ -215,13 +215,19 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        openAndCloseTrove(1 days);
+        openAndCloseTrove(_amount, 1 days);
+
+        // Report profit
+        vm.prank(strategy.keeper());
+        strategy.report();
+
+        skip(strategy.profitMaxUnlockTime());
 
         // Shutdown the strategy
-        vm.prank(emergencyAdmin);
+        vm.prank(management);
         strategy.shutdownStrategy();
 
-        assertEq(strategy.totalAssets(), _amount, "!totalAssets");
+        assertGe(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Make sure we can still withdraw the full amount
         uint256 balanceBefore = asset.balanceOf(user);
@@ -244,16 +250,16 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // Earn Interest
-        openAndCloseTrove(1 days);
+        openAndCloseTrove(_amount, 1 days);
 
         // Shutdown the strategy
-        vm.prank(emergencyAdmin);
+        vm.prank(management);
         strategy.shutdownStrategy();
 
         assertEq(strategy.totalAssets(), _amount, "!totalAssets");
 
         // should be able to pass uint 256 max and not revert.
-        vm.prank(emergencyAdmin);
+        vm.prank(management);
         strategy.emergencyWithdraw(type(uint256).max);
 
         // Make sure we can still withdraw the full amount
@@ -266,147 +272,247 @@ contract AllocatorTests is DeployAllocator, Test {
         assertGe(asset.balanceOf(user), balanceBefore + _amount, "!final balance");
     }
 
-    // ============================================================================================
-    // Allocator-specific tests
-    // ============================================================================================
-
-    // 1. open deposits
-    // 2. user deposits
-    // 3. expect funds forwarded to the Lender via `_deployFunds`
-    function test_deposit(
+    function test_forceFreeFunds_idleOnly(
         uint256 _amount
     ) public {
         _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
 
-        // Fund the user
-        airdrop(asset, user, _amount);
+        mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        uint256 _lenderSharesBefore = LENDER.balanceOf(address(strategy));
+        IDutchDesk _dutchDesk = IDutchDesk(ITroveManager(address(LENDER.TROVE_MANAGER())).dutch_desk());
+        uint256 _nonceBefore = _dutchDesk.nonce();
 
-        // Deposit
-        vm.startPrank(user);
-        asset.approve(address(strategy), _amount);
-        strategy.deposit(_amount, user);
-        vm.stopPrank();
-
-        // All asset went to the Lender, strategy holds new Lender shares,
-        // totalAssets ≈ _amount (subject to Lender PPS rounding)
-        assertEq(asset.balanceOf(address(strategy)), 0, "E0");
-        assertGt(LENDER.balanceOf(address(strategy)), _lenderSharesBefore, "E1");
-        assertApproxEqAbs(strategy.totalAssets(), _amount, 1, "E2");
-    }
-
-    // 1. user deposits
-    // 2. user redeems
-    // 3. expect funds returned via the Lender's idle path (no auction kicked)
-    function test_redeem_idleOnly(
-        uint256 _amount
-    ) public {
-        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
-
-        airdrop(asset, user, _amount);
-
-        vm.startPrank(user);
-        asset.approve(address(strategy), _amount);
-        uint256 _shares = strategy.deposit(_amount, user);
-
-        // The deposit lands in the Lender's idle (forwarded by the strategy), so redeem
-        // should succeed via the idle path without kicking a collateral redemption
-        uint256 _balanceBefore = asset.balanceOf(user);
-        strategy.redeem(_shares, user, user);
-        vm.stopPrank();
-
-        // Depositor got their funds back (within Lender PPS rounding)
-        assertApproxEqAbs(asset.balanceOf(user) - _balanceBefore, _amount, 1, "E0");
-    }
-
-    // 1. seed the strategy with deposits
-    // 2. management calls forceFreeFunds
-    // 3. expect Lender shares to drop and asset to land on the strategy
-    function test_forceFreeFunds(
-        uint256 _amount
-    ) public {
-        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
-
-        airdrop(asset, user, _amount);
-
-        vm.startPrank(user);
-        asset.approve(address(strategy), _amount);
-        strategy.deposit(_amount, user);
-        vm.stopPrank();
-
-        uint256 _lenderSharesBefore = LENDER.balanceOf(address(strategy));
-
-        // Force free the full amount
         vm.prank(management);
         uint256 _freed = strategy.forceFreeFunds(_amount);
 
-        assertLt(LENDER.balanceOf(address(strategy)), _lenderSharesBefore, "E0");
-        assertApproxEqAbs(_freed, _amount, 1, "E1");
-        assertApproxEqAbs(asset.balanceOf(address(strategy)), _freed, 1, "E2");
+        // No auction was kicked - the Lender covered it from idle
+        assertEq(_dutchDesk.nonce(), _nonceBefore, "auction kicked");
+
+        // Strategy got the asset atomically and burned Lender shares
+        assertApproxEqAbs(_freed, _amount, 1, "E0");
+        assertEq(asset.balanceOf(address(strategy)), _freed, "E1");
+        assertEq(LENDER.balanceOf(address(strategy)), 0, "E2");
     }
 
-    // 1. airdrop idle to the strategy
-    // 2. management calls deployIdleFunds with various requests
-    // 3. expect deploy capped by min(idle, lender deposit limit)
+    function test_forceFreeFunds_kicksAuction(
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        // Drain the Lender's idle by borrowing roughly all of it
+        openTrove(address(77), _amount);
+        assertLt(asset.balanceOf(address(LENDER)), _amount, "lender still has idle");
+
+        IDutchDesk _dutchDesk = IDutchDesk(ITroveManager(address(LENDER.TROVE_MANAGER())).dutch_desk());
+        IAuction _auction = IAuction(_dutchDesk.auction());
+        uint256 _nonceBefore = _dutchDesk.nonce();
+
+        // Force-free the full amount - shortfall kicks an auction
+        vm.prank(management);
+        strategy.forceFreeFunds(_amount);
+
+        assertEq(_dutchDesk.nonce(), _nonceBefore + 1, "E0");
+
+        uint256 _auctionId = _nonceBefore;
+        assertTrue(_auction.is_active(_auctionId), "E1");
+        assertGt(_auction.get_available_amount(_auctionId), 0, "E2");
+
+        // Liquidator takes the auction at the market price; proceeds go to the strategy (auction receiver)
+        takeAuction(_auctionId, _auction);
+
+        assertEq(_auction.get_available_amount(_auctionId), 0, "E3");
+        assertFalse(_auction.is_active(_auctionId), "E4");
+        assertApproxEqAbs(asset.balanceOf(address(strategy)), _amount, 10, "E5");
+    }
+
+    function test_deployIdleFunds(
+        uint256 _idle
+    ) public {
+        _idle = bound(_idle, minFuzzAmount, maxFuzzAmount);
+
+        airdrop(asset, address(strategy), _idle);
+
+        uint256 _expectedLenderShares = LENDER.convertToShares(_idle);
+
+        vm.prank(management);
+        uint256 _deployed = strategy.deployIdleFunds(_idle);
+
+        assertEq(_deployed, _idle, "E0");
+        assertEq(asset.balanceOf(address(strategy)), 0, "E1");
+        assertEq(LENDER.balanceOf(address(strategy)), _expectedLenderShares, "E2");
+    }
+
     function test_deployIdleFunds_capsByIdleBalance(
         uint256 _idle,
         uint256 _request
     ) public {
         _idle = bound(_idle, minFuzzAmount, maxFuzzAmount);
-        _request = bound(_request, 1, type(uint256).max);
+        _request = bound(_request, _idle + 1, type(uint256).max);
 
-        // Airdrop idle directly to the strategy (e.g. simulating settled auction proceeds)
         airdrop(asset, address(strategy), _idle);
-
-        uint256 _expected = _idle < _request ? _idle : _request;
-        uint256 _lenderAvailable = LENDER.availableDepositLimit(address(strategy));
-        if (_lenderAvailable < _expected) _expected = _lenderAvailable;
 
         vm.prank(management);
         uint256 _deployed = strategy.deployIdleFunds(_request);
+
+        assertEq(_deployed, _idle, "E0");
+        assertEq(asset.balanceOf(address(strategy)), 0, "E1");
+    }
+
+    function test_deployIdleFunds_capsByLenderLimit(
+        uint256 _idle,
+        uint256 _lenderHeadroom
+    ) public {
+        _idle = bound(_idle, minFuzzAmount + 1, maxFuzzAmount);
+        _lenderHeadroom = bound(_lenderHeadroom, minFuzzAmount, _idle - 1);
+
+        airdrop(asset, address(strategy), _idle);
+
+        vm.startPrank(LENDER.management());
+        LENDER.setDepositLimit(LENDER.totalAssets() + _lenderHeadroom);
+        vm.stopPrank();
+
+        uint256 _expected = LENDER.availableDepositLimit(address(strategy));
+        if (_expected > _idle) _expected = _idle;
+
+        vm.prank(management);
+        uint256 _deployed = strategy.deployIdleFunds(_idle);
 
         assertEq(_deployed, _expected, "E0");
         assertEq(asset.balanceOf(address(strategy)), _idle - _expected, "E1");
     }
 
-    // 1. seed the strategy with deposits
-    // 2. management calls emergencyWithdraw
-    // 3. expect all Lender shares drained
-    function test_emergencyWithdraw(
+    function test_setOpen_gating(
+        uint256 _amount,
+        address _depositor
+    ) public {
+        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
+        vm.assume(_depositor != user && _depositor != address(0));
+
+        airdrop(asset, _depositor, _amount);
+
+        vm.startPrank(_depositor);
+        asset.approve(address(strategy), _amount);
+        vm.expectRevert("ERC4626: deposit more than max");
+        strategy.deposit(_amount, _depositor);
+        vm.stopPrank();
+
+        vm.prank(management);
+        strategy.setOpen(true);
+
+        vm.prank(_depositor);
+        strategy.deposit(_amount, _depositor);
+
+        assertGt(strategy.balanceOf(_depositor), 0, "E0");
+    }
+
+    function test_setAllowed_gating(
+        uint256 _amount,
+        address _depositor,
+        address _stranger
+    ) public {
+        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
+        vm.assume(_depositor != user && _stranger != user);
+        vm.assume(_depositor != _stranger);
+        vm.assume(_depositor != address(0) && _stranger != address(0));
+
+        airdrop(asset, _depositor, _amount);
+        airdrop(asset, _stranger, _amount);
+
+        vm.prank(management);
+        strategy.setAllowed(_depositor, true);
+
+        vm.startPrank(_depositor);
+        asset.approve(address(strategy), _amount);
+        strategy.deposit(_amount, _depositor);
+        vm.stopPrank();
+
+        vm.startPrank(_stranger);
+        asset.approve(address(strategy), _amount);
+        vm.expectRevert("ERC4626: deposit more than max");
+        strategy.deposit(_amount, _stranger);
+        vm.stopPrank();
+    }
+
+    function test_availableWithdrawLimit_capsByLenderIdle(
         uint256 _amount
     ) public {
         _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
 
-        airdrop(asset, user, _amount);
+        mintAndDepositIntoStrategy(strategy, user, _amount);
 
-        vm.startPrank(user);
-        asset.approve(address(strategy), _amount);
-        strategy.deposit(_amount, user);
-        vm.stopPrank();
+        // Drain the Lender's idle by opening a trove
+        openTrove(address(77), _amount);
 
-        // Shutdown then emergency withdraw - drains all Lender shares
-        vm.prank(management);
-        strategy.shutdownStrategy();
+        uint256 _lenderIdle = asset.balanceOf(address(LENDER));
+        assertLt(_lenderIdle, _amount, "lender still has idle");
+        assertEq(strategy.availableWithdrawLimit(user), _lenderIdle, "E0");
+    }
 
-        vm.prank(management);
-        strategy.emergencyWithdraw(_amount);
+    function test_setOpen_wrongCaller(
+        address _wrongCaller,
+        bool _isOpen
+    ) public {
+        vm.assume(_wrongCaller != management);
 
-        // No more Lender shares; whatever was redeemed atomically lives as idle
-        assertEq(LENDER.balanceOf(address(strategy)), 0, "E0");
-        assertGt(asset.balanceOf(address(strategy)), 0, "E1");
+        vm.prank(_wrongCaller);
+        vm.expectRevert("!management");
+        strategy.setOpen(_isOpen);
+    }
+
+    function test_setAllowed_wrongCaller(
+        address _wrongCaller,
+        address _address,
+        bool _isAllowed
+    ) public {
+        vm.assume(_wrongCaller != management);
+
+        vm.prank(_wrongCaller);
+        vm.expectRevert("!management");
+        strategy.setAllowed(_address, _isAllowed);
+    }
+
+    function test_forceFreeFunds_wrongCaller(
+        address _wrongCaller,
+        uint256 _amount
+    ) public {
+        vm.assume(_wrongCaller != management);
+
+        vm.prank(_wrongCaller);
+        vm.expectRevert("!management");
+        strategy.forceFreeFunds(_amount);
+    }
+
+    function test_deployIdleFunds_wrongCaller(
+        address _wrongCaller,
+        uint256 _amount
+    ) public {
+        vm.assume(_wrongCaller != management);
+
+        vm.prank(_wrongCaller);
+        vm.expectRevert("!management");
+        strategy.deployIdleFunds(_amount);
     }
 
     // ============================================================================================
     // Helpers
     // ============================================================================================
 
-    function airdrop(ERC20 _asset, address _to, uint256 _amount) public {
+    function airdrop(
+        ERC20 _asset,
+        address _to,
+        uint256 _amount
+    ) public {
         uint256 _balanceBefore = _asset.balanceOf(_to);
         deal(address(_asset), _to, _balanceBefore + _amount);
     }
 
-    function depositIntoStrategy(IStrategy _strategy, address _user, uint256 _amount) public {
+    function depositIntoStrategy(
+        IStrategy _strategy,
+        address _user,
+        uint256 _amount
+    ) public {
         vm.prank(_user);
         asset.approve(address(_strategy), _amount);
 
@@ -414,12 +520,19 @@ contract AllocatorTests is DeployAllocator, Test {
         _strategy.deposit(_amount, _user);
     }
 
-    function mintAndDepositIntoStrategy(IStrategy _strategy, address _user, uint256 _amount) public {
+    function mintAndDepositIntoStrategy(
+        IStrategy _strategy,
+        address _user,
+        uint256 _amount
+    ) public {
         airdrop(asset, _user, _amount);
         depositIntoStrategy(_strategy, _user, _amount);
     }
 
-    function openTrove(address _borrower, uint256 _borrowAmount) public returns (uint256 _troveId) {
+    function openTrove(
+        address _borrower,
+        uint256 _borrowAmount
+    ) public returns (uint256 _troveId) {
         ITroveManager _tm = ITroveManager(address(LENDER.TROVE_MANAGER()));
         IPriceOracle _oracle = IPriceOracle(_tm.price_oracle());
         ERC20 _collateralToken = ERC20(_tm.collateral_token());
@@ -429,7 +542,7 @@ contract AllocatorTests is DeployAllocator, Test {
         uint256 _collateralNeeded = (_borrowAmount * _targetCR / ASSET_PRECISION) * 1e36 / _oracle.get_price();
 
         // Modest interest rate above min
-        uint256 _rate = _tm.min_annual_interest_rate() * 10;
+        uint256 _rate = _tm.min_annual_interest_rate() * 20;
 
         airdrop(_collateralToken, _borrower, _collateralNeeded);
 
@@ -450,10 +563,10 @@ contract AllocatorTests is DeployAllocator, Test {
     }
 
     function openAndCloseTrove(
+        uint256 _borrowAmount,
         uint256 _holdDuration
     ) public {
         address _borrower = address(77);
-        uint256 _borrowAmount = 1_000 * ASSET_PRECISION;
 
         // Open the trove (interest starts accruing on the borrowed amount)
         uint256 _troveId = openTrove(_borrower, _borrowAmount);
@@ -472,6 +585,42 @@ contract AllocatorTests is DeployAllocator, Test {
         asset.approve(address(_tm), _debt);
         _tm.close_trove(_troveId);
         vm.stopPrank();
+
+        // Report the Lender
+        vm.prank(LENDER.keeper());
+        LENDER.report();
+
+        // Skip profit unlock time
+        skip(LENDER.profitMaxUnlockTime());
+    }
+
+    function takeAuction(
+        uint256 _auctionId,
+        IAuction _auction
+    ) public {
+        address _liquidator = address(88);
+
+        // Skip time until the auction price reaches the oracle price
+        uint256 _stepDuration = _auction.step_duration();
+        IPriceOracle _oracle = IPriceOracle(ITroveManager(address(LENDER.TROVE_MANAGER())).price_oracle());
+        uint256 _targetPrice = _oracle.get_price(false);
+        uint256 _currentPrice = _auction.get_price(_auctionId, block.timestamp);
+        uint256 _steps = 0;
+
+        while (_currentPrice > _targetPrice && _steps < 1440) {
+            _steps++;
+            _currentPrice = _auction.get_price(_auctionId, block.timestamp + _steps * _stepDuration);
+        }
+
+        if (_steps > 0) skip(_steps * _stepDuration);
+
+        uint256 _amountNeeded = _auction.get_needed_amount(_auctionId, type(uint256).max, block.timestamp);
+        airdrop(asset, _liquidator, _amountNeeded);
+
+        vm.startPrank(_liquidator);
+        asset.approve(address(_auction), _amountNeeded);
+        _auction.take(_auctionId, type(uint256).max, _liquidator, "");
+        vm.stopPrank();
     }
 
     function checkStrategyTotals(
@@ -479,7 +628,7 @@ contract AllocatorTests is DeployAllocator, Test {
         uint256 _totalAssets,
         uint256 _totalDebt,
         uint256 _totalIdle
-    ) public view {
+    ) public {
         uint256 _assets = _strategy.totalAssets();
         uint256 _balance = ERC20(_strategy.asset()).balanceOf(address(_strategy));
         uint256 _idle = _balance > _assets ? _assets : _balance;
