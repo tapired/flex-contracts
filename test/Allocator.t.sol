@@ -50,7 +50,8 @@ contract AllocatorTests is DeployAllocator, Test {
         run();
 
         // Deploy a Strategy wrapping the on-chain Lender
-        strategy = IStrategy(strategyFactory.deploy(LENDER.asset(), address(LENDER), management, keeper, performanceFeeRecipient, "Flex Lender Strategy"));
+        strategy =
+            IStrategy(strategyFactory.deploy(LENDER.asset(), address(LENDER), management, keeper, performanceFeeRecipient, "Flex Lender Strategy"));
         asset = ERC20(strategy.asset());
         ASSET_PRECISION = 10 ** asset.decimals();
 
