@@ -119,8 +119,8 @@ contract FlexLenderStrategy is BaseHealthCheck {
         // Cap the amount by our idle balance
         _amount = Math.min(asset.balanceOf(address(this)), _amount);
 
-        // Cap by the Lender's available deposit limit
-        _amount = Math.min(_amount, LENDER.availableDepositLimit(address(this)));
+        // Cap by our max deposit
+        _amount = Math.min(_amount, LENDER.maxDeposit(address(this)));
 
         // Deposit
         if (_amount > 0) LENDER.deposit(_amount, address(this));
