@@ -80,7 +80,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
     function availableWithdrawLimit(
         address /*_owner*/
     ) public view override returns (uint256) {
-        return asset.balanceOf(address(this)) + Math.min(asset.balanceOf(address(LENDER)), LENDER.maxWithdraw(address(this)));
+        return asset.balanceOf(address(this)) + asset.balanceOf(address(LENDER));
     }
 
     // ============================================================================================
@@ -178,10 +178,13 @@ contract FlexLenderStrategy is BaseHealthCheck {
 
     /// @inheritdoc BaseStrategy
     function _emergencyWithdraw(
-        uint256 /*_amount*/
+        uint256 _amount
     ) internal override {
+        // Cap the amount to our max redeem
+        uint256 _shares = Math.min(LENDER.convertToShares(_amount), LENDER.maxRedeem(address(this)));
+
         // Withdraw everything we can, trigger a redemption if needed
-        LENDER.redeem(LENDER.maxRedeem(address(this)), address(this), address(this));
+        LENDER.redeem(_shares, address(this), address(this));
     }
 
 }
