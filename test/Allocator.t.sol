@@ -28,6 +28,7 @@ contract AllocatorTests is DeployAllocator, Test {
     // Roles
     address public user = address(1);
     address public management = address(420);
+    address public keeper = address(69);
     address public performanceFeeRecipient = address(42069);
 
     // Fuzz bounds
@@ -49,7 +50,7 @@ contract AllocatorTests is DeployAllocator, Test {
         run();
 
         // Deploy a Strategy wrapping the on-chain Lender
-        strategy = IStrategy(strategyFactory.deploy(LENDER.asset(), address(LENDER), management, performanceFeeRecipient, "Flex Lender Strategy"));
+        strategy = IStrategy(strategyFactory.deploy(LENDER.asset(), address(LENDER), management, keeper, performanceFeeRecipient, "Flex Lender Strategy"));
         asset = ERC20(strategy.asset());
         ASSET_PRECISION = 10 ** asset.decimals();
 
@@ -79,7 +80,7 @@ contract AllocatorTests is DeployAllocator, Test {
         assertEq(strategy.asset(), address(asset));
         assertEq(strategy.management(), management);
         assertEq(strategy.performanceFeeRecipient(), performanceFeeRecipient);
-        assertEq(strategy.keeper(), strategyFactory.KEEPER());
+        assertEq(strategy.keeper(), keeper);
     }
 
     function test_operation(
