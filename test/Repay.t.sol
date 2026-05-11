@@ -72,6 +72,13 @@ contract RepayTests is Base {
         assertEq(borrowToken.balanceOf(address(dutchDesk)), 0, "E22");
         assertEq(collateralToken.balanceOf(address(dutchDesk)), 0, "E23");
 
+        // Skip past the open's block so the repay isn't blocked by the same-block guard
+        uint256 _openTimestamp = block.timestamp;
+        skip(1);
+
+        // Cache the debt after the skip's accrued interest, before repay
+        uint256 _debtAfterInterest = troveManager.get_trove_debt_after_interest(_troveId);
+
         // Finally repay the trove back down to min debt
         vm.startPrank(userBorrower);
         borrowToken.approve(address(troveManager), _amountToRepay);
@@ -82,11 +89,11 @@ contract RepayTests is Base {
 
         // Check trove info
         _trove = troveManager.troves(_troveId);
-        assertEq(_trove.debt, _expectedDebt - _amountToRepay, "E24");
+        assertEq(_trove.debt, _debtAfterInterest - _amountToRepay, "E24");
         assertEq(_trove.collateral, _collateralNeeded, "E25");
         assertEq(_trove.annual_interest_rate, DEFAULT_ANNUAL_INTEREST_RATE, "E26");
         assertEq(_trove.last_debt_update_time, block.timestamp, "E27");
-        assertEq(_trove.last_interest_rate_adj_time, block.timestamp, "E28");
+        assertEq(_trove.last_interest_rate_adj_time, _openTimestamp, "E28");
         assertEq(_trove.owner, userBorrower, "E29");
         assertEq(uint256(_trove.status), uint256(ITroveManager.Status.active), "E30");
         assertGt(
@@ -111,8 +118,8 @@ contract RepayTests is Base {
         assertEq(borrowToken.balanceOf(userBorrower), _amount - _amountToRepay, "E42");
 
         // Check global info
-        assertEq(troveManager.total_debt(), _expectedDebt - _amountToRepay, "E43");
-        assertEq(troveManager.total_weighted_debt(), (_expectedDebt - _amountToRepay) * DEFAULT_ANNUAL_INTEREST_RATE, "E44");
+        assertApproxEqAbs(troveManager.total_debt(), _debtAfterInterest - _amountToRepay, 1, "E43");
+        assertEq(troveManager.total_weighted_debt(), (_debtAfterInterest - _amountToRepay) * DEFAULT_ANNUAL_INTEREST_RATE, "E44");
         assertEq(troveManager.collateral_balance(), _collateralNeeded, "E45");
         assertEq(troveManager.zombie_trove_id(), 0, "E46");
 
@@ -209,6 +216,9 @@ contract RepayTests is Base {
         // Open a trove
         uint256 _troveId = mintAndOpenTrove(userBorrower, _collateralNeeded, _amount, DEFAULT_ANNUAL_INTEREST_RATE);
 
+        // Skip past the open's block so the repay isn't blocked by the same-block guard
+        skip(1);
+
         // Finally repay the trove back down to min debt
         vm.startPrank(userBorrower);
         borrowToken.approve(address(troveManager), type(uint256).max);
@@ -218,6 +228,50 @@ contract RepayTests is Base {
         // Check trove info
         ITroveManager.Trove memory _trove = troveManager.troves(_troveId);
         assertEq(_trove.debt, troveManager.min_debt(), "E0");
+    }
+
+    // Repaying in the same block as opening should revert
+    function test_repay_sameBlockAsOpen_reverts(
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, troveManager.min_debt() * 150 / 100, maxFuzzAmount);
+
+        mintAndDepositIntoLender(userLender, _amount);
+
+        uint256 _collateralNeeded =
+            (_amount * DEFAULT_TARGET_COLLATERAL_RATIO / BORROW_TOKEN_PRECISION) * ORACLE_PRICE_SCALE / priceOracle.get_price();
+        uint256 _troveId = mintAndOpenTrove(userBorrower, _collateralNeeded, _amount, DEFAULT_ANNUAL_INTEREST_RATE);
+
+        vm.startPrank(userBorrower);
+        borrowToken.approve(address(troveManager), type(uint256).max);
+        vm.expectRevert("same block");
+        troveManager.repay(_troveId, _amount / 2);
+        vm.stopPrank();
+    }
+
+    // Repaying in the same block as a previous borrow should revert
+    function test_repay_sameBlockAsBorrow_reverts(
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, troveManager.min_debt() * 2, maxFuzzAmount);
+
+        mintAndDepositIntoLender(userLender, _amount);
+
+        uint256 _initialBorrow = _amount / 2;
+        uint256 _collateralNeeded =
+            (_amount * DEFAULT_TARGET_COLLATERAL_RATIO / BORROW_TOKEN_PRECISION) * ORACLE_PRICE_SCALE / priceOracle.get_price();
+        uint256 _troveId = mintAndOpenTrove(userBorrower, _collateralNeeded, _initialBorrow, DEFAULT_ANNUAL_INTEREST_RATE);
+
+        // Step past the open's block so the next revert is attributable to the borrow
+        skip(1);
+
+        vm.startPrank(userBorrower);
+        troveManager.borrow(_troveId, _initialBorrow / 2, type(uint256).max, 0, 0);
+
+        borrowToken.approve(address(troveManager), type(uint256).max);
+        vm.expectRevert("same block");
+        troveManager.repay(_troveId, _initialBorrow / 4);
+        vm.stopPrank();
     }
 
 }

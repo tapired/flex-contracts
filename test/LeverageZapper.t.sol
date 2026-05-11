@@ -410,6 +410,9 @@ contract LeverageZapperTests is Base {
         // Open trove at max leverage
         uint256 troveId = test_openLeveragedTrove(_userCollateral, maxLeverage);
 
+        // Skip past the open's block so the lever-down repay isn't blocked by the same-block guard
+        skip(1);
+
         // Record state before lever down
         ITroveManager.Trove memory troveBefore = troveManager.troves(troveId);
         uint256 borrowBalanceBefore = borrowToken.balanceOf(userBorrower);
@@ -697,6 +700,9 @@ contract LeverageZapperTests is Base {
         _leverageReduction = bound(_leverageReduction, 1, maxLeverage - 2);
 
         uint256 troveId = test_openLeveragedTrove(_userCollateral, maxLeverage);
+
+        // Skip past the open's block so the lever-down repay isn't blocked by the same-block guard
+        skip(1);
 
         ITroveManager.Trove memory troveBefore = troveManager.troves(troveId);
 
