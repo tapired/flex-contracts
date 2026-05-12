@@ -292,4 +292,69 @@ contract CloseTroveTests is Base {
         vm.stopPrank();
     }
 
+    // Borrowing more debt and closing in the same block should revert
+    function test_closeTrove_sameBlockAsBorrow_reverts(
+        uint256 _amount
+    ) public {
+        // Need enough Lender liquidity for both the initial open and the subsequent borrow
+        _amount = bound(_amount, troveManager.min_debt() * 2, maxFuzzAmount);
+
+        mintAndDepositIntoLender(userLender, _amount);
+
+        // Open with half the amount to leave headroom for a follow-up borrow
+        uint256 _initialBorrow = _amount / 2;
+        uint256 _collateralNeeded =
+            (_amount * DEFAULT_TARGET_COLLATERAL_RATIO / BORROW_TOKEN_PRECISION) * ORACLE_PRICE_SCALE / priceOracle.get_price();
+        uint256 _troveId = mintAndOpenTrove(userBorrower, _collateralNeeded, _initialBorrow, DEFAULT_ANNUAL_INTEREST_RATE);
+
+        // Step past the open's block so the close revert is attributable to the borrow
+        skip(1);
+
+        // Borrow more - refreshes `last_debt_update_time` to `block.timestamp`
+        vm.prank(userBorrower);
+        troveManager.borrow(_troveId, _initialBorrow / 2, type(uint256).max, 0, 0);
+
+        // Airdrop the full debt to the borrower so the close attempt isn't blocked by approvals
+        uint256 _debt = troveManager.get_trove_debt_after_interest(_troveId);
+        airdrop(address(borrowToken), userBorrower, _debt);
+
+        // Closing in the same block as the borrow should revert
+        vm.startPrank(userBorrower);
+        borrowToken.approve(address(troveManager), _debt);
+        vm.expectRevert("same block");
+        troveManager.close_trove(_troveId);
+        vm.stopPrank();
+    }
+
+    // Repaying debt and closing in the same block should revert
+    function test_closeTrove_sameBlockAsRepay_reverts(
+        uint256 _amount
+    ) public {
+        // Need enough debt headroom above min_debt to repay
+        _amount = bound(_amount, troveManager.min_debt() * 2, maxFuzzAmount);
+
+        mintAndDepositIntoLender(userLender, _amount);
+
+        uint256 _collateralNeeded =
+            (_amount * DEFAULT_TARGET_COLLATERAL_RATIO / BORROW_TOKEN_PRECISION) * ORACLE_PRICE_SCALE / priceOracle.get_price();
+        uint256 _troveId = mintAndOpenTrove(userBorrower, _collateralNeeded, _amount, DEFAULT_ANNUAL_INTEREST_RATE);
+
+        // Step past the open's block so the close revert is attributable to the repay
+        skip(1);
+
+        // Airdrop enough to cover repay + final close
+        uint256 _debt = troveManager.get_trove_debt_after_interest(_troveId);
+        airdrop(address(borrowToken), userBorrower, _debt);
+
+        // Repay something - refreshes `last_debt_update_time` to `block.timestamp`
+        vm.startPrank(userBorrower);
+        borrowToken.approve(address(troveManager), _debt);
+        troveManager.repay(_troveId, _amount / 2);
+
+        // Closing in the same block as the repay should revert
+        vm.expectRevert("same block");
+        troveManager.close_trove(_troveId);
+        vm.stopPrank();
+    }
+
 }

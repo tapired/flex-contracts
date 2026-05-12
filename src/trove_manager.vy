@@ -640,6 +640,9 @@ def repay(trove_id: uint256, debt_amount: uint256):
     # Make sure the Trove is active
     assert trove.status == Status.ACTIVE, "!active"
 
+    # Disallow repaying in the same block as any debt-touching update
+    assert convert(trove.last_debt_update_time, uint256) != block.timestamp, "same block"
+
     # Get the Trove's debt after accruing interest
     trove_debt_after_interest: uint256 = self._get_trove_debt_after_interest(trove)
 
@@ -803,8 +806,8 @@ def close_trove(trove_id: uint256):
     # Make sure the Trove is active
     assert trove.status == Status.ACTIVE, "!active"
 
-    # Disallow closing in the same block as opening or adjusting the interest rate
-    assert convert(trove.last_interest_rate_adj_time, uint256) != block.timestamp, "same block"
+    # Disallow closing in the same block as any debt-touching update
+    assert convert(trove.last_debt_update_time, uint256) != block.timestamp, "same block"
 
     # Get the Trove's debt after accruing interest
     trove_debt_after_interest: uint256 = self._get_trove_debt_after_interest(trove)
