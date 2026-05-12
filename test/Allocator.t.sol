@@ -14,11 +14,11 @@ import {IDutchDesk} from "./interfaces/IDutchDesk.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {ITroveManager} from "./interfaces/ITroveManager.sol";
 
-import "../script/DeployAllocator.s.sol";
+import {DeployAllocatorStrategyFactory} from "../script/DeployAllocatorStrategyFactory.s.sol";
 
 import "forge-std/Test.sol";
 
-contract AllocatorTests is DeployAllocator, Test {
+contract AllocatorTests is DeployAllocatorStrategyFactory, Test {
 
     // Contracts
     ERC20 public asset;

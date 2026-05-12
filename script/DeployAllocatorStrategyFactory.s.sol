@@ -8,9 +8,9 @@ import "forge-std/Script.sol";
 // ---- Usage ----
 
 // deploy:
-// forge script script/DeployAllocator.s.sol:DeployAllocator --verify --slow --etherscan-api-key $KEY --rpc-url $RPC_URL --broadcast
+// forge script script/DeployAllocatorStrategyFactory.s.sol:DeployAllocatorStrategyFactory --verify --slow --etherscan-api-key $KEY --rpc-url $RPC_URL --broadcast
 
-contract DeployAllocator is Script {
+contract DeployAllocatorStrategyFactory is Script {
 
     bool public isTest;
     address public deployerAddress;
