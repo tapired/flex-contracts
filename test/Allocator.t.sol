@@ -285,7 +285,7 @@ contract AllocatorTests is DeployAllocatorStrategyFactory, Test {
         uint256 _nonceBefore = _dutchDesk.nonce();
 
         vm.prank(management);
-        uint256 _freed = strategy.forceFreeFunds(_amount);
+        uint256 _freed = strategy.forceFreeFunds(_amount, _amount - 1);
 
         // No auction was kicked - the Lender covered it from idle
         assertEq(_dutchDesk.nonce(), _nonceBefore, "auction kicked");
@@ -311,9 +311,9 @@ contract AllocatorTests is DeployAllocatorStrategyFactory, Test {
         IAuction _auction = IAuction(_dutchDesk.auction());
         uint256 _nonceBefore = _dutchDesk.nonce();
 
-        // Force-free the full amount - shortfall kicks an auction
+        // Force-free the full amount - shortfall kicks an auction (no min-out enforced, async delivery)
         vm.prank(management);
-        strategy.forceFreeFunds(_amount);
+        strategy.forceFreeFunds(_amount, 0);
 
         assertEq(_dutchDesk.nonce(), _nonceBefore + 1, "E0");
 
@@ -327,6 +327,22 @@ contract AllocatorTests is DeployAllocatorStrategyFactory, Test {
         assertEq(_auction.get_available_amount(_auctionId), 0, "E3");
         assertFalse(_auction.is_active(_auctionId), "E4");
         assertApproxEqAbs(asset.balanceOf(address(strategy)), _amount, 10, "E5");
+    }
+
+    function test_forceFreeFunds_slippage_reverts(
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, minFuzzAmount, maxFuzzAmount);
+
+        mintAndDepositIntoStrategy(strategy, user, _amount);
+
+        // Drain the Lender's idle so the atomic delivery falls short of `_amount`
+        openTrove(address(77), _amount);
+
+        // `_minOut = _amount` enforces an atomic delivery the Lender can't satisfy
+        vm.prank(management);
+        vm.expectRevert("shrekt");
+        strategy.forceFreeFunds(_amount, _amount);
     }
 
     function test_deployIdleFunds(
@@ -475,13 +491,14 @@ contract AllocatorTests is DeployAllocatorStrategyFactory, Test {
 
     function test_forceFreeFunds_wrongCaller(
         address _wrongCaller,
-        uint256 _amount
+        uint256 _amount,
+        uint256 _minOut
     ) public {
         vm.assume(_wrongCaller != management);
 
         vm.prank(_wrongCaller);
         vm.expectRevert("!management");
-        strategy.forceFreeFunds(_amount);
+        strategy.forceFreeFunds(_amount, _minOut);
     }
 
     function test_deployIdleFunds_wrongCaller(

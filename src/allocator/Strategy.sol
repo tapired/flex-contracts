@@ -92,15 +92,20 @@ contract FlexLenderStrategy is BaseHealthCheck {
     /// @dev Could trigger a collateral redemption, meaning assets will arrive asynchronously
     ///      and may create a loss on the collateral/asset conversion
     /// @param _amount The amount of asset to free
+    /// @param _minOut Minimum amount of asset delivered atomically
     /// @return The actual amount of asset freed
     function forceFreeFunds(
-        uint256 _amount
+        uint256 _amount,
+        uint256 _minOut
     ) external onlyManagement returns (uint256) {
         // Cap the amount to our max redeem
         uint256 _shares = Math.min(LENDER.previewWithdraw(_amount), LENDER.maxRedeem(address(this)));
 
         // Withdraw and potentially trigger a collateral redemption
         if (_shares > 0) _amount = LENDER.redeem(_shares, address(this), address(this));
+
+        // Make sure we got at least the minimum amount requested
+        require(_amount >= _minOut, "shrekt");
 
         // Emit event
         emit ForceFreeFunds(_amount);

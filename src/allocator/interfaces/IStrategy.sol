@@ -40,7 +40,8 @@ interface IStrategy is IBaseHealthCheck {
     ) external;
 
     function forceFreeFunds(
-        uint256 _amount
+        uint256 _amount,
+        uint256 _minOut
     ) external returns (uint256);
 
     function deployIdleFunds(
