@@ -102,7 +102,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
         uint256 _shares = Math.min(LENDER.previewWithdraw(_amount), LENDER.maxRedeem(address(this)));
 
         // Withdraw and potentially trigger a collateral redemption
-        if (_shares > 0) _amount = LENDER.redeem(_shares, address(this), address(this));
+        _amount = _shares > 0 ? LENDER.redeem(_shares, address(this), address(this)) : 0;
 
         // Make sure we got at least the minimum amount requested
         require(_amount >= _minOut, "shrekt");
