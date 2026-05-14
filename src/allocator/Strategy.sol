@@ -188,7 +188,7 @@ contract FlexLenderStrategy is BaseHealthCheck {
         // Cap the amount to our max redeem
         uint256 _shares = Math.min(LENDER.previewWithdraw(_amount), LENDER.maxRedeem(address(this)));
 
-        // Withdraw everything we can, trigger a redemption if needed
+        // Withdraw everything we can, trigger a collateral redemption if needed
         LENDER.redeem(_shares, address(this), address(this));
     }
 
