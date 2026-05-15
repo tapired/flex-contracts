@@ -3,6 +3,7 @@ pragma solidity 0.8.23;
 
 import {IStrategy} from "../src/allocator/interfaces/IStrategy.sol";
 import {ICentralAPROracle} from "./interfaces/ICentralAPROracle.sol";
+import {ICommonReportTrigger} from "./interfaces/ICommonReportTrigger.sol";
 
 import {StrategyFactory} from "../src/allocator/StrategyFactory.sol";
 
@@ -27,8 +28,10 @@ contract DeployAllocatorStrategy is Script {
     address public constant ACCOUNTANT = 0x5A74Cb32D36f2f517DB6f7b0A0591e09b22cDE69; // accountant mainnet
 
     // Deployed contracts
+    address public constant FIXED_REPORT_TRIGGER = 0xb9F57B62Cbe9463da16E5b75e3B809321a0eA871;
     address public constant STRATEGY_APR_ORACLE = 0xfd6117E7dC92Dd284412a0eE9FC2C9bDb945B9d1;
     ICentralAPROracle public constant CENTRAL_APR_ORACLE = ICentralAPROracle(0x1981AD9F44F2EA9aDd2dC4AD7D075c102C70aF92);
+    ICommonReportTrigger public constant COMMON_REPORT_TRIGGER = ICommonReportTrigger(0xf8dF17a35c88AbB25e83C92f9D293B4368b9D52D);
     StrategyFactory public constant FACTORY = StrategyFactory(0x7A3B96E84156d22Cdb53CbfC0B035Ddd61805266);
 
     function run() public {
@@ -54,6 +57,9 @@ contract DeployAllocatorStrategy is Script {
 
         // Set APR oracle for the strategy
         CENTRAL_APR_ORACLE.setOracle(address(_strategy), STRATEGY_APR_ORACLE);
+
+        // Set report trigger for the strategy
+        COMMON_REPORT_TRIGGER.setCustomStrategyTrigger(address(_strategy), FIXED_REPORT_TRIGGER);
 
         console2.log("---------------------------------");
         console2.log("Strategy: ", address(_strategy));
