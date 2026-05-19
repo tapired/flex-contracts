@@ -69,6 +69,8 @@ interface ILeverageZapper {
     // Storage
     // ============================================================================================
 
+    function SWAP_EXECUTOR() external view returns (address);
+
     function routers(
         address router
     ) external view returns (bool);
