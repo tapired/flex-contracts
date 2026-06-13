@@ -4,6 +4,17 @@
 # Env:   ENSO_API_KEY must be set
 # Returns: hex-encoded `abi.encodePacked(router, data)` for an Enso V2 swap.
 #          First 20 bytes are the router (`tx.to`), rest is the calldata.
+#
+# Manual usage:
+# curl -s -X POST "https://api.enso.build/api/v1/shortcuts/route" -H "Content-Type: application/json" -H "Authorization: Bearer $ENSO_API_KEY" -d '{
+#     "chainId": 1,
+#     "fromAddress": "0x5250077c42627cBd112988f32D482acC9ff40bDB",
+#     "routingStrategy": "router",
+#     "tokenIn":  ["0xDBDC1Ef57537E34680B898E1FEBD3D68c7389bCB"],
+#     "tokenOut": ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"],
+#     "amountIn": ["1000000000000000000000000"],
+#     "slippage": "100"
+#   }' | python3 -m json.tool
 
 CHAIN_ID=$1
 INPUT_TOKEN=$2
